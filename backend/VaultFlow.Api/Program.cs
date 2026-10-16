@@ -2,12 +2,21 @@ using Microsoft.EntityFrameworkCore;
 using VaultFlow.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// conexión a Azure SQL
+// Conexión a Azure SQL
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
     ?? throw new InvalidOperationException("La cadena de conexión 'DefaultConnection' no está configurada.");
 
@@ -16,13 +25,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    dbContext.Database.Migrate();
-}
+app.UseCors();
 
-// Swagger Desarrollo y Producción (para probar en Azure)
+// Swagger en Desarrollo y Producción
 if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
@@ -34,8 +39,6 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 }
 
 app.UseAuthorization();
-
-// Mapeo de API
 app.MapControllers();
 
 app.Run();
