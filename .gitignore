@@ -1,0 +1,26 @@
+# Archivos de configuración local de .NET con contraseñas
+appsettings.json
+appsettings.Development.json
+appsettings.Production.json
+
+# Compilados de .NET / C#
+**/bin/
+**/obj/
+
+# Dependencias de Node.js / React (Frontend)
+**/node_modules/
+**/dist/
+**/build/
+.env
+.env.local
+
+# Archivos de parámetros sensibles de Bicep
+*.bicepparam
+*.tfvars
+
+# Entornos e IDEs
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db
