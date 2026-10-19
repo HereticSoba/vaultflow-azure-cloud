@@ -69,7 +69,7 @@ app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfig
 
         var payload = new
         {
-            model = "llama-3.3-70b-versatile", // <--- Asegura este ID de modelo exacto de Groq
+            model = "llama-3.1-8b-instant",
             messages = new[]
             {
                 new { role = "system", content = "Eres un asistente virtual de IA integrado en la plataforma VaultFlow." },
