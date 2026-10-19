@@ -1,9 +1,11 @@
-using Azure.AI.OpenAI;
-using Azure.Identity;
 using Microsoft.EntityFrameworkCore;
+using OpenAI;
+using System.ClientModel;
 using VaultFlow.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
+
+/* CORS */
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -21,12 +23,16 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
-    var endpoint = config["AIServicesEndpoint"] ?? config["AIServices:Endpoint"]
-                ?? throw new InvalidOperationException("El endpoint de AI Services no está configurado.");
-    return new AzureOpenAIClient(new Uri(endpoint), new DefaultAzureCredential());
+    var apiKey = config["GroqApiKey"] 
+        ?? throw new InvalidOperationException("La clave 'GroqApiKey' no está configurada.");
+
+    return new OpenAIClient(
+        new ApiKeyCredential(apiKey),
+        new OpenAIClientOptions { Endpoint = new Uri("https://api.groq.com/openai/v1") }
+    );
 });
 
-// Conexión a Azure SQL
+/* Conexión a Azure SQL */
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("La cadena de conexión 'DefaultConnection' no está configurada.");
 
@@ -37,7 +43,6 @@ var app = builder.Build();
 
 app.UseCors();
 
-// Swagger en Desarrollo y Producción
 if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
@@ -51,9 +56,9 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 app.UseAuthorization();
 app.MapControllers();
 
-app.MapPost("/api/ai/chat", async (AzureOpenAIClient aiClient, ChatRequest request) =>
+app.MapPost("/api/ai/chat", async (OpenAIClient openAiClient, ChatRequest request) =>
 {
-    var chatClient = aiClient.GetChatClient("gpt-4o-mini");
+    var chatClient = openAiClient.GetChatClient("llama-3.3-70b-versatile");
 
     var completion = await chatClient.CompleteChatAsync(request.Prompt);
     return Results.Ok(new { response = completion.Value.Content[0].Text });
@@ -62,4 +67,5 @@ app.MapPost("/api/ai/chat", async (AzureOpenAIClient aiClient, ChatRequest reque
 .WithTags("AI Agent");
 
 app.Run();
+
 public record ChatRequest(string Prompt);
