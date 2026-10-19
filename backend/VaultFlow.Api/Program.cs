@@ -51,4 +51,15 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 app.UseAuthorization();
 app.MapControllers();
 
+app.MapPost("/api/ai/chat", async (AzureOpenAIClient aiClient, ChatRequest request) =>
+{
+    var chatClient = aiClient.GetChatClient("gpt-4o-mini");
+
+    var completion = await chatClient.CompleteChatAsync(request.Prompt);
+    return Results.Ok(new { response = completion.Value.Content[0].Text });
+})
+.WithName("AskAIAgent")
+.WithTags("AI Agent");
+
 app.Run();
+public record ChatRequest(string Prompt);
