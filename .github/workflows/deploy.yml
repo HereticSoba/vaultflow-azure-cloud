@@ -22,6 +22,6 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          docker build -t acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }} -t acrvaultflowdev01.azurecr.io/vaultflow-api:latest -f ./VaultFlow.Api/Dockerfile . || docker build -t acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }} -t acrvaultflowdev01.azurecr.io/vaultflow-api:latest .
+          docker build -t acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }} -t acrvaultflowdev01.azurecr.io/vaultflow-api:latest -f ./backend/VaultFlow.Api/Dockerfile ./backend/VaultFlow.Api
           docker push acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }}
           docker push acrvaultflowdev01.azurecr.io/vaultflow-api:latest
