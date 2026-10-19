@@ -1,99 +1,137 @@
 # VaultFlow - Aplicación Financiera Cloud-Native en Azure
 
-VaultFlow es una solución full-stack cloud-native diseñada para la gestión y seguimiento de transacciones financieras. El proyecto está construido bajo una arquitectura de microservicios/servicios distribuidos desplegada en **Microsoft Azure**, aplicando mejores prácticas de contenerización, seguridad de datos e infraestructura.
+VaultFlow es una solución full-stack cloud-native diseñada para la gestión, orquestación y análisis de transacciones financieras. El proyecto está construido bajo una arquitectura de microservicios y servicios distribuidos desplegada en Microsoft Azure, aplicando contenerización, infraestructura como código (IaC), seguridad de datos, integración continua y agentes de IA.
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+## Arquitectura del Sistema
 ```
-[ Frontend: React + Vite ] 
-       │ (HTTPS / REST API)
-       ▼
-[ Azure Container Apps (Ingress: External Port 8080) ]
-       │
-       ├─► [ .NET 9 Web API (Entity Framework Core) ]
-       │          │
-       │          └─► [ Variables de entorno (SecretRef) ]
-       │
-       ▼
-[ Azure SQL Database (v12 - Serverless/Standard) ]
+[ Frontend: React + Vite + TypeScript ]
+                  |
+             HTTPS / REST
+                  |
+                  v
+[ Azure Container Apps - Port 8080 ]
+                  |
+                  v
+[ .NET 9 Web API + Entity Framework Core ]
+                  |
+        +---------+----------+
+        |         |          |
+        v         v          v
+ [ Key Vault ] [ Azure AI ] [ Application Insights ]
+        |         |          |
+        +---------+----------+
+                  |
+                  v
+        [ Azure SQL Database ]
+                  ^
+                  |
+        [ Azure Data Factory ]
+
+[ GitHub Actions ]
+        |
+        v
+[ Azure Container Registry ]
+        |
+        v
+[ Azure Container Apps ]
+
+[ Azure Bicep - Infrastructure as Code ]
 ```
 
 ---
 
-## 🛠️ Tech Stack & Servicios de Azure
+## Tech Stack & Servicios de Azure
 
 ### **Backend & Base de Datos**
-* **Framework:** .NET 9 Web API C#
+* **Framework:** .NET 9 Web API C# (Minimal APIs / Controllers)
 * **ORM:** Entity Framework Core (Provider SQL Server)
 * **Base de Datos:** Azure SQL Database
-* **Documentación API:** Swagger / OpenAPI
+* **Documentación API:** Swagger / OpenAPI UI
 
-### **Frontend**
-* **Framework:** React 18 + Vite + TypeScript
-* **HTTP Client:** Axios
-* **Estilos:** CSS3 / Modern Flexbox & Grid
+### **Inteligencia Artificial & Orquestación**
+* **Agentes de IA:** Azure AI Services / Azure OpenAI)
+* **Ingesta & ETL:** Azure Data Factory
 
-### **Infraestructura Cloud & DevOps**
-* **Contenedores:** Docker (Multi-stage build)
-* **Registro de Imágenes:** Azure Container Registry (ACR)
-* **Cómputo Serverless:** Azure Container Apps (ACA)
-* **Seguridad & Configuración:** Azure Secrets & Environment Variables Ingestion
-* **Control de Red:** Azure SQL Firewall Rules (`AllowMyLocalIP`, `AllowAzureServices`)
-* **CLI & Automation:** Azure CLI (`az`), PowerShell
+### **Infraestructura Cloud, Seguridad & DevOps**
+* **Contenedores:** Docker (Multi-stage build) & Azure Container Apps
+* **Registro de Imágenes:** Azure Container Registry
+* **Infraestructura como Código (IaC):** Azure Bicep unificado
+* **Seguridad & Secretos:** Azure Key Vault con RBAC y DefaultAzureCredential
+* **Monitoreo & Observabilidad:** Application Insights (`appins-vaultflow-dev`) & Log Analytics Workspaces
+* **CI/CD Pipeline:** GitHub Actions (`.github/workflows/deploy.yml`) para despliegue automático hacia ACR y ACA
 
 ---
 
-## 🔐 Seguridad y Buenas Prácticas Aplicadas
+## Seguridad
 
-1. **Gestión de Secretos:** Ninguna credencial o cadena de conexión a la base de datos está expuesta en el código fuente.
-2. **Inyección de Secretos en ACA:** La cadena de conexión real se inyecta en tiempo de ejecución mediante `az containerapp secret set` y se vincula mediante `secretref`.
-3. **Control de CORS:** Configuración permisiva en el middleware de .NET 9 delegando la gestión directa desde la capa de aplicación, eliminando bloqueos de preflight `OPTIONS` a nivel de Ingress.
-4. **Firewall de Base de Datos:** Reglas explícitas asignadas para permitir la administración local vía Entity Framework y la comunicación interna de los servicios de Azure.
+1. **Gestión de Secretos sin Hardcoding:** Ninguna credencial, clave de API ni cadena de conexión está expuesta en el código fuente ni en el repositorio.
+2. **Autenticación Basada en Identidad (RBAC):** Uso de `DefaultAzureCredential` de `Azure.Identity` para resolver de forma segura las credenciales de Key Vault y Azure AI Services.
+3. **Control de CORS:** Middleware configurado en .NET 9 para permitir la interacción segura con aplicaciones cliente.
+4. **Firewall de Base de Datos:** Reglas asignadas en Azure SQL para garantizar el acceso desde Azure Container Apps y servicios de Azure.
 
 ---
 
 ## 🚀 Guía de Despliegue Local y en la Nube
+### 💻 Testeo de API
 
-### **Prerrequisitos**
-* .NET 9 SDK
-* Node.js (v18+)
-* Docker Desktop
-* Azure CLI
+El backend se encuentra desplegado en la nube de Azure.
+
+1. **Interfaz Interactiva Swagger:**
+   Documentación OpenAPI interactiva para explorar y ejecutar peticiones `GET`, `POST` y probar la API en tiempo real:
+   * 🔗 **Swagger UI:** <a href="[https://localhost:7084/swagger](https://app-vaultflow-api.wittygrass-3fa04590.westus3.azurecontainerapps.io/swagger/index.html)">https://app-vaultflow-api.wittygrass-3fa04590.westus3.azurecontainerapps.io/swagger/index.html</a>
+
+2. **Monitoreo & Telemetría en Vivo:**
+   Cualquier petición realizada desde Swagger genera picos de tráfico, trazabilidad de dependencias hacia Azure SQL y logs en tiempo real dentro de **Application Insights**.
 
 ---
 
-### **Configuración de la Base de Datos (Azure SQL)**
+### 💻 Ejecución Local para Desarrollo (Localhost)
+#### Prerrequisitos:
+* **.NET 9.0 SDK**
+* **Azure CLI** *(para autenticación local con Azure Key Vault)*
 
-Para aplicar las migraciones iniciales a Azure SQL Database desde tu máquina local:
+#### Pasos:
 
-```powershell
-cd backend/VaultFlow.Api
-
-# Definir la variable de entorno temporal con tus credenciales
-$env:ConnectionStrings__DefaultConnection="Server=tcp:<TU_SERVIDOR>.database.windows.net,1433;Initial Catalog=sqldb-vaultflow;Persist Security Info=False;User ID=<USER>;Password=<PASSWORD>;Encrypt=True;"
-
-# Aplicar las migraciones
-dotnet ef database update
+1. **Clonar el repositorio:**
+   ```
+   git clone https://github.com/HereticSoba/vaultflow-azure-cloud.git
+   ```
+   ```
+   cd vaultflow-azure-cloud/backend/VaultFlow.Api
+   ```
+2. **Iniciar sesión en Azure CLI:**
+   ```
+   az login
+   ```
+3. **Migración de la DB (opcional):**
+   ```
+   $env:ConnectionStrings__DefaultConnection="Server=tcp:sql-vaultflow-ycm3rebzye5kw.database.windows.net,1433;Initial Catalog=sqldb-vaultflow;Persist Security Info=False;User ID=vaultadmin;Password=<TU_PASSWORD>;Encrypt=True;"
+   ```
+   ```
+   dotnet ef database update
+   ```
+4. **Iniciar la API:**
+   ```
+   dotnet run
+   ```
+   
+---
+### 💻 Reproducir el IaC en Azure
+1. **Iniciar sesión:**
 ```
-## **Construcción y Publicación del Contenedor Backend**
-
-### 1. Autenticarse en Azure Container Registry
+az login
 ```
-az acr login --name <NOMBRE_ACR>
+2. **Crear grupo de recursos:**
 ```
-### 2. Compilar la imagen Docker
+az group create --name rg-vaultflow-evaluacion --location westus3
 ```
-docker build -t <NOMBRE_ACR>.azurecr.io/vaultflow-api:v7 .
+3. **Desplegar plantilla Bicep unificada:**
 ```
-### 3. Subir la imagen al registro
+az deployment group create `
+  --resource-group rg-vaultflow-evaluacion `
+  --template-file ./infra/main.bicep `
+  --parameters ./infra/main.bicepparam
 ```
-docker push <NOMBRE_ACR>.azurecr.io/vaultflow-api:v7
-```
-### 4. Desplegar o actualizar la Container App
-```
-az containerapp update `
-  --name app-vaultflow-api `
-  --resource-group rg-vaultflow-dev `
-  --image <NOMBRE_ACR>.azurecr.io/vaultflow-api:v7
-```
+---
