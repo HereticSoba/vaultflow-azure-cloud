@@ -29,12 +29,10 @@ jobs:
           docker push acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }}
           docker push acrvaultflowdev01.azurecr.io/vaultflow-api:latest
 
-      - name: Update Azure Container App Image
-        uses: azure/CLI@v2
+      - name: Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v1
         with:
-          inlineScript: |
-            az containerapp update \
-              --name app-vaultflow-api \
-              --resource-group rg-vaultflow-dev \
-              --container-name app-vaultflow-api \
-              --image acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }}
+          acrName: acrvaultflowdev01
+          containerAppName: app-vaultflow-api
+          resourceGroup: rg-vaultflow-dev
+          imageToDeploy: acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }}
