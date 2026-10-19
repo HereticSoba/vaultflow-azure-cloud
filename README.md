@@ -4,44 +4,6 @@ VaultFlow es una solución full-stack cloud-native diseñada para la gestión, o
 
 ---
 
-## Arquitectura del Sistema
-```
-[ Frontend: React + Vite + TypeScript ]
-                  |
-             HTTPS / REST
-                  |
-                  v
-[ Azure Container Apps - Port 8080 ]
-                  |
-                  v
-[ .NET 9 Web API + Entity Framework Core ]
-                  |
-        +---------+----------+
-        |         |          |
-        v         v          v
- [ Key Vault ] [ Azure AI ] [ Application Insights ]
-        |         |          |
-        +---------+----------+
-                  |
-                  v
-        [ Azure SQL Database ]
-                  ^
-                  |
-        [ Azure Data Factory ]
-
-[ GitHub Actions ]
-        |
-        v
-[ Azure Container Registry ]
-        |
-        v
-[ Azure Container Apps ]
-
-[ Azure Bicep - Infrastructure as Code ]
-```
-
----
-
 ## Tech Stack & Servicios de Azure
 
 ### **Backend & Base de Datos**
