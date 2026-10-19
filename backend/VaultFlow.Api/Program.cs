@@ -1,3 +1,5 @@
+using Azure.AI.OpenAI;
+using Azure.Identity;
 using Microsoft.EntityFrameworkCore;
 using VaultFlow.Api.Data;
 
@@ -16,9 +18,16 @@ builder.Services.AddControllers();
 builder.Services.AddApplicationInsightsTelemetry();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddSingleton(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var endpoint = config["AIServicesEndpoint"] ?? config["AIServices:Endpoint"]
+                ?? throw new InvalidOperationException("El endpoint de AI Services no está configurado.");
+    return new AzureOpenAIClient(new Uri(endpoint), new DefaultAzureCredential());
+});
 
 // Conexión a Azure SQL
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("La cadena de conexión 'DefaultConnection' no está configurada.");
 
 builder.Services.AddDbContext<AppDbContext>(options =>

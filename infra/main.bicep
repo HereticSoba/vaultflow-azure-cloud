@@ -23,6 +23,7 @@ var containerAppName = 'app-${appName}-api'
 var keyVaultName = take('kv-${appName}-${uniqueString(resourceGroup().id)}', 24)
 var appInsightsName = 'appins-${appName}-${environment}'
 var dataFactoryName = 'adf-${appName}-${environment}'
+var aiServiceName = 'ais-${appName}-${environment}'
 
 /* ACR */
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -204,6 +205,29 @@ resource dataFactory 'Microsoft.DataFactory/factories@2018-06-01' = {
   }
 }
 
+/* Azure IA services */
+resource aiServices 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
+  name: aiServiceName
+  location: location
+  kind: 'AIServices'
+  sku: {
+    name: 'S0'
+  }
+  properties: {
+    publicNetworkAccess: 'Enabled'
+    customSubDomainName: aiServiceName
+  }
+}
+
+/* Endpoint de servicio IA secreto en keyvault */
+resource aiServicesEndpointSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'ai-services-endpoint'
+  properties: {
+    value: aiServices.properties.endpoint
+  }
+}
+
 /* Outputs */
 output acrLoginServer string = containerRegistry.properties.loginServer
 output sqlServerFQDN string = sqlServer.properties.fullyQualifiedDomainName
@@ -211,3 +235,4 @@ output containerAppFQDN string = containerApp.properties.configuration.ingress.f
 output keyVaultName string = keyVault.name
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
 output dataFactoryName string = dataFactory.name
+output aiServicesEndpoint string = aiServices.properties.endpoint
