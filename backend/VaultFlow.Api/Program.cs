@@ -69,7 +69,7 @@ app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfig
 
         var payload = new
         {
-            model = "llama-3.1-8b-instant",
+            model = "openai/gpt-oss-20b",
             messages = new[]
             {
                 new { role = "system", content = "Eres un asistente virtual de IA integrado en la plataforma VaultFlow." },
