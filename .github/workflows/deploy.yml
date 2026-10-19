@@ -1,0 +1,30 @@
+name: Build and Deploy API to Azure Container Apps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v2
+        with:
+          login-server: acrvaultflowdev01.azurecr.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and Push Docker Image
+        run: |
+          docker build -t acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }} -t acrvaultflowdev01.azurecr.io/vaultflow-api:latest ./backend/VaultFlow.Api
+          docker push acrvaultflowdev01.azurecr.io/vaultflow-api:${{ github.sha }}
+          docker push acrvaultflowdev01.azurecr.io/vaultflow-api:latest

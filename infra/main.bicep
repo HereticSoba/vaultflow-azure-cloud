@@ -20,6 +20,8 @@ var sqlDbName = 'sqldb-${appName}'
 var acrName = 'acr${appName}${environment}01'
 var acaEnvName = 'cae-${appName}-${environment}'
 var containerAppName = 'app-${appName}-api'
+var keyVaultName = take('kv-${appName}-${uniqueString(resourceGroup().id)}', 24)
+var appInsightsName = 'appins-${appName}-${environment}'
 
 /* ACR */
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -66,6 +68,41 @@ resource allowAzureServicesFirewall 'Microsoft.Sql/servers/firewallRules@2022-05
   }
 }
 
+/* Azure key vault */
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: keyVaultName
+  location: location
+  properties: {
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    tenantId: subscription().tenantId
+    enableRbacAuthorization: true
+    enabledForTemplateDeployment: true
+  }
+}
+
+/* Cadena de conexión SQL (secreto) */
+resource sqlConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'sql-connection-string'
+  properties: {
+    value: 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Initial Catalog=${sqlDbName};Persist Security Info=False;User ID=${sqlAdminUsername};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+  }
+}
+
+/* App insights */
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: appInsightsName
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    RetentionInDays: 30
+  }
+}
+
 /* Entorno azure container apps */
 resource containerAppEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   name: acaEnvName
@@ -86,7 +123,27 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
         external: true
         targetPort: 8080
         transport: 'auto'
-        corsPolicy: null
+        corsPolicy: {
+          allowedOrigins: [
+            'http://localhost:5173'
+          ]
+          allowedMethods: [
+            'GET'
+            'POST'
+            'PUT'
+            'DELETE'
+            'OPTIONS'
+          ]
+          allowedHeaders: [
+            'Content-Type'
+            'Authorization'
+            'X-Requested-With'
+            'Accept'
+            'Origin'
+          ]
+          maxAge: 3600
+          allowCredentials: true
+        }
       }
       registries: [
         {
@@ -110,7 +167,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       containers: [
         {
           name: containerAppName
-          image: '${acrName}.azurecr.io/vaultflow-api:v7'
+          image: '${acrName}.azurecr.io/vaultflow-api:v8'
           resources: {
             cpu: json('0.25')
             memory: '0.5Gi'
@@ -119,6 +176,10 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'ConnectionStrings__DefaultConnection'
               secretRef: 'sql-connection-string'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: appInsights.properties.ConnectionString
             }
           ]
         }
@@ -135,3 +196,5 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
 output acrLoginServer string = containerRegistry.properties.loginServer
 output sqlServerFQDN string = sqlServer.properties.fullyQualifiedDomainName
 output containerAppFQDN string = containerApp.properties.configuration.ingress.fqdn
+output keyVaultName string = keyVault.name
+output appInsightsConnectionString string = appInsights.properties.ConnectionString
