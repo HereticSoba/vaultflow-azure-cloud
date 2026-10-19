@@ -22,6 +22,7 @@ var acaEnvName = 'cae-${appName}-${environment}'
 var containerAppName = 'app-${appName}-api'
 var keyVaultName = take('kv-${appName}-${uniqueString(resourceGroup().id)}', 24)
 var appInsightsName = 'appins-${appName}-${environment}'
+var dataFactoryName = 'adf-${appName}-${environment}'
 
 /* ACR */
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -192,9 +193,21 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
+resource dataFactory 'Microsoft.DataFactory/factories@2018-06-01' = {
+  name: dataFactoryName
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
 /* Outputs */
 output acrLoginServer string = containerRegistry.properties.loginServer
 output sqlServerFQDN string = sqlServer.properties.fullyQualifiedDomainName
 output containerAppFQDN string = containerApp.properties.configuration.ingress.fqdn
 output keyVaultName string = keyVault.name
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output dataFactoryName string = dataFactory.name
