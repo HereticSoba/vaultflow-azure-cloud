@@ -1,0 +1,17 @@
+# Secretos y configuración local: no deben viajar dentro de la imagen
+appsettings.*.json
+!appsettings.json
+.env
+.env.*
+
+# Artefactos de compilación y del IDE
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Metadatos del repositorio
+.git/
+.gitignore

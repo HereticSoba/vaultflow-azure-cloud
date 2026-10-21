@@ -14,6 +14,13 @@ param sqlAdminUsername string = 'vaultadmin'
 @secure()
 param sqlAdminPassword string
 
+@description('Tag de la imagen del backend a desplegar en Azure Container Apps.')
+param imageTag string = 'latest'
+
+@description('Clave de API de Groq para el agente de IA.')
+@secure()
+param groqApiKey string
+
 /* Nombres */
 var sqlServerName = 'sql-${appName}-${uniqueString(resourceGroup().id)}'
 var sqlDbName = 'sqldb-${appName}'
@@ -24,6 +31,8 @@ var keyVaultName = take('kv-${appName}-${uniqueString(resourceGroup().id)}', 24)
 var appInsightsName = 'appins-${appName}-${environment}'
 var dataFactoryName = 'adf-${appName}-${environment}'
 var aiServiceName = 'ais-${appName}-${environment}'
+var containerAppIdentityName = 'id-${appName}-${environment}'
+var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 
 /* ACR */
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -94,6 +103,32 @@ resource sqlConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01
   }
 }
 
+/* Clave de Groq (secreto) */
+resource groqApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'groq-api-key'
+  properties: {
+    value: groqApiKey
+  }
+}
+
+/* Identidad administrada de la Container App para leer Key Vault */
+resource containerAppIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: containerAppIdentityName
+  location: location
+}
+
+/* Permiso de la identidad sobre los secretos del Key Vault */
+resource keyVaultSecretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, containerAppIdentity.id, keyVaultSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+    principalId: containerAppIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 /* App insights */
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: appInsightsName
@@ -118,6 +153,12 @@ resource containerAppEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   name: containerAppName
   location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${containerAppIdentity.id}': {}
+    }
+  }
   properties: {
     managedEnvironmentId: containerAppEnv.id
     configuration: {
@@ -125,27 +166,6 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
         external: true
         targetPort: 8080
         transport: 'auto'
-        corsPolicy: {
-          allowedOrigins: [
-            'http://localhost:5173'
-          ]
-          allowedMethods: [
-            'GET'
-            'POST'
-            'PUT'
-            'DELETE'
-            'OPTIONS'
-          ]
-          allowedHeaders: [
-            'Content-Type'
-            'Authorization'
-            'X-Requested-With'
-            'Accept'
-            'Origin'
-          ]
-          maxAge: 3600
-          allowCredentials: true
-        }
       }
       registries: [
         {
@@ -159,25 +179,25 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           name: 'acr-password'
           value: containerRegistry.listCredentials().passwords[0].value
         }
-        {
-          name: 'sql-connection-string'
-          value: 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Initial Catalog=${sqlDbName};Persist Security Info=False;User ID=${sqlAdminUsername};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
-        }
       ]
     }
     template: {
       containers: [
         {
           name: containerAppName
-          image: '${acrName}.azurecr.io/vaultflow-api:v8'
+          image: '${acrName}.azurecr.io/vaultflow-api:${imageTag}'
           resources: {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
           env: [
             {
-              name: 'ConnectionStrings__DefaultConnection'
-              secretRef: 'sql-connection-string'
+              name: 'KeyVaultUri'
+              value: keyVault.properties.vaultUri
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: containerAppIdentity.properties.clientId
             }
             {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -189,9 +209,22 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       scale: {
         minReplicas: 0
         maxReplicas: 3
+        rules: [
+          {
+            name: 'http-scaler'
+            http: {
+              metadata: {
+                concurrentRequests: '10'
+              }
+            }
+          }
+        ]
       }
     }
   }
+  dependsOn: [
+    keyVaultSecretsUserRole
+  ]
 }
 
 resource dataFactory 'Microsoft.DataFactory/factories@2018-06-01' = {
@@ -209,6 +242,9 @@ resource dataFactory 'Microsoft.DataFactory/factories@2018-06-01' = {
 resource aiServices 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   name: aiServiceName
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   kind: 'AIServices'
   sku: {
     name: 'S0'

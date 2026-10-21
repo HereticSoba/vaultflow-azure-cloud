@@ -1,0 +1,14 @@
+using 'main.bicep'
+
+param location = 'westus3'
+param appName = 'vaultflow'
+param environment = 'dev'
+param sqlAdminUsername = 'vaultadmin'
+
+// Se leen de variables de entorno para no guardar secretos en el repositorio.
+// PowerShell:
+//   $env:SQL_ADMIN_PASSWORD = "..."
+//   $env:GROQ_API_KEY = "..."
+param sqlAdminPassword = readEnvironmentVariable('SQL_ADMIN_PASSWORD')
+param groqApiKey = readEnvironmentVariable('GROQ_API_KEY')
+param imageTag = readEnvironmentVariable('IMAGE_TAG', 'latest')
