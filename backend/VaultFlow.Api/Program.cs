@@ -1,18 +1,16 @@
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuración de servicios
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Cliente HTTP para Groq
 builder.Services.AddHttpClient("GroqClient", client =>
 {
     client.BaseAddress = new Uri("https://api.groq.com/openai/v1/");
 });
 
-// Configuración de CORS
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -29,43 +27,82 @@ app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors();
 
-// Base de datos temporal / en memoria de transacciones
-var transactions = new List<Transaction>
-{
-    new(1, "Suscripción Azure", 50.00m, "Licencia", "Microsoft"),
-    new(2, "Suscripción Prime", 30.00m, "Streaming", "Amazon Prime"),
-    new(3, "Suscripción Netflix", 40.00m, "Streaming", "Netflix")
-};
+// Cadena de conexión obtenida de appsettings.json o Variables de Entorno en Azure Container Apps
+string getConnectionString(IConfiguration config) =>
+    config.GetConnectionString("DefaultConnection") ?? config["SqlConnectionString"] ?? "";
 
-// Health Check Root
 app.MapGet("/", () => Results.Ok(new { status = "Online", service = "VaultFlow API" }))
    .WithTags("VaultFlow.Api");
 
 // -------------------------------------------------------------
-// ENDPOINTS DE TRANSACCIONES (VaultFlow Core API)
+// ENDPOINTS DE TRANSACCIONES (Conectados a Azure SQL)
 // -------------------------------------------------------------
 
-app.MapGet("/api/transactions", () => Results.Ok(transactions))
-   .WithName("GetTransactions")
-   .WithTags("Transactions");
-
-app.MapPost("/api/transactions", (TransactionInput input) =>
+// GET /api/transactions - Lee desde Azure SQL
+app.MapGet("/api/transactions", async (IConfiguration config) =>
 {
-    var newTx = new Transaction(
-        transactions.Count + 1,
-        input.Description,
-        input.Amount,
-        string.IsNullOrEmpty(input.Category) ? "General" : input.Category,
-        string.IsNullOrEmpty(input.Merchant) ? "Desconocido" : input.Merchant
-    );
-    transactions.Add(newTx);
-    return Results.Created($"/api/transactions/{newTx.Id}", newTx);
+    var list = new List<Transaction>();
+    var connStr = getConnectionString(config);
+
+    if (string.IsNullOrEmpty(connStr))
+    {
+        return Results.Problem("Cadena de conexión a Azure SQL no configurada.");
+    }
+
+    using var conn = new SqlConnection(connStr);
+    await conn.OpenAsync();
+
+    var cmd = new SqlCommand("SELECT Id, Description, Amount, Category, Merchant FROM Transactions", conn);
+    using var reader = await cmd.ExecuteReaderAsync();
+
+    while (await reader.ReadAsync())
+    {
+        list.Add(new Transaction(
+            reader.GetInt32(0),
+            reader.GetString(1),
+            reader.GetDecimal(2),
+            reader.IsDBNull(3) ? "General" : reader.GetString(3),
+            reader.IsDBNull(4) ? "Desconocido" : reader.GetString(4)
+        ));
+    }
+
+    return Results.Ok(list);
+})
+.WithName("GetTransactions")
+.WithTags("Transactions");
+
+// POST /api/transactions - Inserta en Azure SQL
+app.MapPost("/api/transactions", async (IConfiguration config, TransactionInput input) =>
+{
+    var connStr = getConnectionString(config);
+    if (string.IsNullOrEmpty(connStr))
+    {
+        return Results.Problem("Cadena de conexión a Azure SQL no configurada.");
+    }
+
+    using var conn = new SqlConnection(connStr);
+    await conn.OpenAsync();
+
+    var sql = @"INSERT INTO Transactions (Description, Amount, Category, Merchant, Date) 
+                OUTPUT INSERTED.Id 
+                VALUES (@Desc, @Amount, @Cat, @Merch, GETDATE())";
+
+    using var cmd = new SqlCommand(sql, conn);
+    cmd.Parameters.AddWithValue("@Desc", input.Description);
+    cmd.Parameters.AddWithValue("@Amount", input.Amount);
+    cmd.Parameters.AddWithValue("@Cat", string.IsNullOrEmpty(input.Category) ? "General" : input.Category);
+    cmd.Parameters.AddWithValue("@Merch", string.IsNullOrEmpty(input.Merchant) ? "Desconocido" : input.Merchant);
+
+    var newId = (int)await cmd.ExecuteScalarAsync();
+
+    var newTx = new Transaction(newId, input.Description, input.Amount, input.Category, input.Merchant);
+    return Results.Created($"/api/transactions/{newId}", newTx);
 })
 .WithName("CreateTransaction")
 .WithTags("Transactions");
 
 // -------------------------------------------------------------
-// ENDPOINT DE AGENTE IA (CON CONTEXTO DE TRANSACCIONES)
+// ENDPOINT DE AGENTE IA
 // -------------------------------------------------------------
 
 app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfiguration config, ChatRequest request) =>
@@ -81,7 +118,6 @@ app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfig
         var client = httpClientFactory.CreateClient("GroqClient");
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
 
-        // Formateo del contexto enviado por el frontend
         string contextData = "No hay transacciones registradas actualmente.";
         if (request.Transactions != null && request.Transactions.Any())
         {
@@ -131,7 +167,6 @@ app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfig
 
 app.Run();
 
-// DTOs / Modelos
 public record Transaction(int Id, string Description, decimal Amount, string Category, string Merchant);
 public record TransactionInput(string Description, decimal Amount, string Category, string Merchant);
 public record ChatTransaction(string Description, decimal Amount, string Category, string Merchant);
