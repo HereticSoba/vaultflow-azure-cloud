@@ -3,17 +3,20 @@ using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configuración de servicios
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Cliente HTTP para Groq
 builder.Services.AddHttpClient("GroqClient", client =>
 {
     client.BaseAddress = new Uri("https://api.groq.com/openai/v1/");
 });
 
+// Configuración de CORS permisivo
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
               .AllowAnyHeader()
@@ -25,84 +28,103 @@ var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
-app.UseCors();
+app.UseCors("AllowAll");
 
-// Cadena de conexión obtenida de appsettings.json o Variables de Entorno en Azure Container Apps
-string getConnectionString(IConfiguration config) =>
-    config.GetConnectionString("DefaultConnection") ?? config["SqlConnectionString"] ?? "";
+// Helper para obtener la cadena de conexión desde las Variables de Entorno de Azure o appsettings
+string GetConnectionString(IConfiguration config) =>
+    config.GetConnectionString("DefaultConnection") 
+    ?? config["SqlConnectionString"] 
+    ?? "";
 
+// Health Check Root
 app.MapGet("/", () => Results.Ok(new { status = "Online", service = "VaultFlow API" }))
    .WithTags("VaultFlow.Api");
 
 // -------------------------------------------------------------
-// ENDPOINTS DE TRANSACCIONES (Conectados a Azure SQL)
+// ENDPOINTS DE TRANSACCIONES (Azure SQL)
 // -------------------------------------------------------------
 
-// GET /api/transactions - Lee desde Azure SQL
+// GET /api/transactions - Consulta datos desde Azure SQL
 app.MapGet("/api/transactions", async (IConfiguration config) =>
 {
     var list = new List<Transaction>();
-    var connStr = getConnectionString(config);
+    var connStr = GetConnectionString(config);
 
     if (string.IsNullOrEmpty(connStr))
     {
-        return Results.Problem("Cadena de conexión a Azure SQL no configurada.");
+        return Results.Problem("La cadena de conexión SqlConnectionString no está configurada en Azure.");
     }
 
-    using var conn = new SqlConnection(connStr);
-    await conn.OpenAsync();
-
-    var cmd = new SqlCommand("SELECT Id, Description, Amount, Category, Merchant FROM Transactions", conn);
-    using var reader = await cmd.ExecuteReaderAsync();
-
-    while (await reader.ReadAsync())
+    try
     {
-        list.Add(new Transaction(
-            reader.GetInt32(0),
-            reader.GetString(1),
-            reader.GetDecimal(2),
-            reader.IsDBNull(3) ? "General" : reader.GetString(3),
-            reader.IsDBNull(4) ? "Desconocido" : reader.GetString(4)
-        ));
-    }
+        using var conn = new SqlConnection(connStr);
+        await conn.OpenAsync();
 
-    return Results.Ok(list);
+        var query = "SELECT Id, Description, Amount, Category, Merchant FROM Transactions ORDER BY Id DESC";
+        using var cmd = new SqlCommand(query, conn);
+        using var reader = await cmd.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            list.Add(new Transaction(
+                reader.GetInt32(0),
+                reader.GetString(1),
+                reader.GetDecimal(2),
+                reader.IsDBNull(3) ? "General" : reader.GetString(3),
+                reader.IsDBNull(4) ? "Desconocido" : reader.GetString(4)
+            ));
+        }
+
+        return Results.Ok(list);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Error al consultar Azure SQL: {ex.Message}");
+    }
 })
 .WithName("GetTransactions")
 .WithTags("Transactions");
 
-// POST /api/transactions - Inserta en Azure SQL
+// POST /api/transactions - Inserta un nuevo registro en Azure SQL
 app.MapPost("/api/transactions", async (IConfiguration config, TransactionInput input) =>
 {
-    var connStr = getConnectionString(config);
+    var connStr = GetConnectionString(config);
+
     if (string.IsNullOrEmpty(connStr))
     {
-        return Results.Problem("Cadena de conexión a Azure SQL no configurada.");
+        return Results.Problem("La cadena de conexión SqlConnectionString no está configurada en Azure.");
     }
 
-    using var conn = new SqlConnection(connStr);
-    await conn.OpenAsync();
+    try
+    {
+        using var conn = new SqlConnection(connStr);
+        await conn.OpenAsync();
 
-    var sql = @"INSERT INTO Transactions (Description, Amount, Category, Merchant, Date) 
-                OUTPUT INSERTED.Id 
-                VALUES (@Desc, @Amount, @Cat, @Merch, GETDATE())";
+        var sql = @"INSERT INTO Transactions (Description, Amount, Category, Merchant, Date) 
+                    OUTPUT INSERTED.Id 
+                    VALUES (@Desc, @Amount, @Cat, @Merch, GETDATE())";
 
-    using var cmd = new SqlCommand(sql, conn);
-    cmd.Parameters.AddWithValue("@Desc", input.Description);
-    cmd.Parameters.AddWithValue("@Amount", input.Amount);
-    cmd.Parameters.AddWithValue("@Cat", string.IsNullOrEmpty(input.Category) ? "General" : input.Category);
-    cmd.Parameters.AddWithValue("@Merch", string.IsNullOrEmpty(input.Merchant) ? "Desconocido" : input.Merchant);
+        using var cmd = new SqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("@Desc", input.Description);
+        cmd.Parameters.AddWithValue("@Amount", input.Amount);
+        cmd.Parameters.AddWithValue("@Cat", string.IsNullOrEmpty(input.Category) ? "General" : input.Category);
+        cmd.Parameters.AddWithValue("@Merch", string.IsNullOrEmpty(input.Merchant) ? "Desconocido" : input.Merchant);
 
-    var newId = (int)await cmd.ExecuteScalarAsync();
+        var newId = (int)await cmd.ExecuteScalarAsync();
 
-    var newTx = new Transaction(newId, input.Description, input.Amount, input.Category, input.Merchant);
-    return Results.Created($"/api/transactions/{newId}", newTx);
+        var newTx = new Transaction(newId, input.Description, input.Amount, input.Category, input.Merchant);
+        return Results.Created($"/api/transactions/{newId}", newTx);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Error al insertar en Azure SQL: {ex.Message}");
+    }
 })
 .WithName("CreateTransaction")
 .WithTags("Transactions");
 
 // -------------------------------------------------------------
-// ENDPOINT DE AGENTE IA
+// ENDPOINT DE AGENTE IA (CON CONTEXTO DE TRANSACCIONES)
 // -------------------------------------------------------------
 
 app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfiguration config, ChatRequest request) =>
@@ -118,6 +140,7 @@ app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfig
         var client = httpClientFactory.CreateClient("GroqClient");
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
 
+        // Formateo del contexto enviado por el frontend
         string contextData = "No hay transacciones registradas actualmente.";
         if (request.Transactions != null && request.Transactions.Any())
         {
@@ -167,6 +190,7 @@ app.MapPost("/api/ai/chat", async (IHttpClientFactory httpClientFactory, IConfig
 
 app.Run();
 
+// DTOs / Modelos
 public record Transaction(int Id, string Description, decimal Amount, string Category, string Merchant);
 public record TransactionInput(string Description, decimal Amount, string Category, string Merchant);
 public record ChatTransaction(string Description, decimal Amount, string Category, string Merchant);
